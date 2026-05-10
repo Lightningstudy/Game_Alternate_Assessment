@@ -1,22 +1,24 @@
-// basketball-game.js — coach mini-game (timed throws to running players)
+// basketball-game.js — coach mini-game (lead-pass drill to cutters)
 //
-// Coach stays on the left with a pile of basketballs. Players run from
-// right to left one at a time. The user must press Space (or click) so
-// that the ball lands just ahead of the runner — too early and it falls
-// short, too late and it bonks the player on the head (injury, no points).
+// A spot on the court lights up green and a player cuts toward it from
+// somewhere on the perimeter. The coach must CLICK where they want the
+// pass to land. The goal: ball arrives at the lit spot just as the cutter
+// gets there. Both spatial accuracy (clicked near the spot) and timing
+// accuracy (ball lands when cutter arrives) matter. A shrinking shot
+// clock forces a quick decision. Difficulty ramps over the session:
+// faster cutters, tighter shot clock, smaller error tolerance.
 const BBGame = {
   start(opts) {
     this.canvas = document.getElementById("bb-canvas");
     this.ctx = this.canvas.getContext("2d");
-    const W = this.canvas.width;
     const H = this.canvas.height;
 
     this.s = {
       ballsTotal: opts.balls,
-      ballsResolved: 0,           // runners whose attempt has concluded
+      ballsResolved: 0,
       runnersSpawned: 0,
       level: opts.level,
-      coachX: 100,
+      coachX: 90,
       coachY: H - 60,
       coins: 0,
       ratings: { perfect: 0, good: 0, miss: 0, injury: 0 },
@@ -24,18 +26,32 @@ const BBGame = {
       lastEarned: 0,
       ratingShownUntil: 0,
 
-      catchX: 380,                // where the ball lands on every throw
-      runnerVelocity: 5.0,        // px/frame (~300 px/s at 60fps)
-      ballFlightFrames: 28,       // ~470ms
       coachScale: 1.5,
-      runnerScale: 1.7,
+      runnerScale: 1.6,
+      ballFlightFrames: 28,
+
+      // Catch spots scattered around the court
+      spots: [
+        { x: 820, y: 140 },
+        { x: 700, y: 220 },
+        { x: 580, y: 170 },
+        { x: 460, y: 290 },
+        { x: 360, y: 180 },
+        { x: 250, y: 240 },
+      ],
+      activeSpotIdx: -1,
 
       currentRunner: null,
       nextRunnerAt: null,
+      shotDeadlineAt: null,
+      shotDeadlineDuration: 0,
       runnerNumber: 4,
 
       throws: [],
       sparkles: [],
+
+      mouseX: -100,
+      mouseY: -100,
 
       ended: false,
       finishingAt: null,
@@ -43,29 +59,29 @@ const BBGame = {
     };
 
     if (this.s.ballsTotal <= 0) {
-      // No balls earned — show a brief message then exit
       setTimeout(() => {
-        opts.onComplete({
-          coins: 0,
-          ballsUsed: 0,
-          ratings: this.s.ratings,
-        });
+        opts.onComplete({ coins: 0, ballsUsed: 0, ratings: this.s.ratings });
       }, 800);
       this.draw(performance.now());
       return;
     }
 
-    this.spawnNextRunner();
-
-    this._kh = (e) => {
-      if (e.code === "Space" && !this.s.ended) {
-        e.preventDefault();
-        this.throwBall();
-      }
+    this._mh = (e) => {
+      const rect = this.canvas.getBoundingClientRect();
+      this.s.mouseX = (e.clientX - rect.left) * (this.canvas.width / rect.width);
+      this.s.mouseY = (e.clientY - rect.top) * (this.canvas.height / rect.height);
     };
-    this._ch = () => { if (!this.s.ended) this.throwBall(); };
-    document.addEventListener("keydown", this._kh);
+    this._ch = (e) => {
+      if (this.s.ended) return;
+      const rect = this.canvas.getBoundingClientRect();
+      const cx = (e.clientX - rect.left) * (this.canvas.width / rect.width);
+      const cy = (e.clientY - rect.top) * (this.canvas.height / rect.height);
+      this.throwBall(cx, cy);
+    };
+    this.canvas.addEventListener("mousemove", this._mh);
     this.canvas.addEventListener("click", this._ch);
+
+    this.spawnNextRunner();
 
     this._loop = this._loop.bind(this);
     this._lastT = performance.now();
@@ -76,47 +92,97 @@ const BBGame = {
   cleanup() {
     if (this._raf) cancelAnimationFrame(this._raf);
     this._raf = null;
-    document.removeEventListener("keydown", this._kh);
+    this.canvas.removeEventListener("mousemove", this._mh);
     this.canvas.removeEventListener("click", this._ch);
+  },
+
+  difficulty() {
+    if (this.s.ballsTotal <= 1) return 0;
+    return Math.min(1, (this.s.runnersSpawned - 1) / Math.max(1, this.s.ballsTotal - 1));
   },
 
   spawnNextRunner() {
     if (this.s.runnersSpawned >= this.s.ballsTotal) {
       this.s.currentRunner = null;
+      this.s.activeSpotIdx = -1;
       return;
     }
     this.s.runnersSpawned += 1;
+
+    let idx;
+    do {
+      idx = Math.floor(Math.random() * this.s.spots.length);
+    } while (idx === this.s.activeSpotIdx && this.s.spots.length > 1);
+    this.s.activeSpotIdx = idx;
+    const spot = this.s.spots[idx];
+
+    const d = this.difficulty();
+    const speed = 200 + d * 220;             // 200..420 px/s
+    const startDist = 230 + Math.random() * 80;
+    const angle = Math.random() * Math.PI * 2;
+    let startX = spot.x + Math.cos(angle) * startDist;
+    let startY = spot.y + Math.sin(angle) * startDist;
+    startX = Math.max(-40, Math.min(this.canvas.width + 40, startX));
+    startY = Math.max(60, Math.min(this.canvas.height - 30, startY));
+    const dx = spot.x - startX;
+    const dy = spot.y - startY;
+    const dist = Math.hypot(dx, dy) || 1;
+    const dirX = dx / dist;
+    const dirY = dy / dist;
+    const arrivalMs = (dist / speed) * 1000;
+
+    const now = performance.now();
+
     this.s.currentRunner = {
-      x: this.canvas.width + 50,
-      y: this.canvas.height - 60,
+      x: startX,
+      y: startY,
+      targetSpot: idx,
+      dirX,
+      dirY,
+      speed,
       legPhase: 0,
       number: this.s.runnerNumber++,
       thrown: false,
-      animState: "running",       // running | caught | injured | exiting
+      animState: "running",
       stateTime: 0,
-      stars: [],                  // dazed visual particles
+      stars: [],
+      arrivalMs,
+      spawnedAt: now,
     };
+
+    const baseDeadline = 3500 - d * 1700;    // 3500..1800 ms
+    this.s.shotDeadlineAt = now + baseDeadline;
+    this.s.shotDeadlineDuration = baseDeadline;
   },
 
-  throwBall() {
+  throwBall(targetX, targetY) {
     const r = this.s.currentRunner;
     if (!r || r.thrown || r.animState !== "running") return;
+    const spot = this.s.spots[r.targetSpot];
+    const now = performance.now();
 
-    // Predicted player position when ball lands
-    const flightFrames = this.s.ballFlightFrames;
-    const predicted = r.x - this.s.runnerVelocity * flightFrames;
-    // Offset of player relative to ball-landing point.
-    // > 0: player still right of catch (ball ahead of player → catchable)
-    // < 0: player past catch (ball behind player → potential head shot)
-    const offset = predicted - this.s.catchX;
+    const flightMs = this.s.ballFlightFrames * 16;
+    const ballArrivalAt = now + flightMs;
+    const cutterArrivalAt = r.spawnedAt + r.arrivalMs;
+    const timingErr = ballArrivalAt - cutterArrivalAt;
+    const spatialErr = Math.hypot(targetX - spot.x, targetY - spot.y);
+
+    const d = this.difficulty();
+    const spatialPerfect = 36 - d * 10;      // 36..26 px
+    const spatialGood    = 80 - d * 22;      // 80..58 px
+    const timingPerfect  = 280 - d * 130;    // 280..150 ms
+    const timingGood     = 620 - d * 250;    // 620..370 ms
 
     let rating;
-    if (offset > 50)        rating = "MISS";       // way too early
-    else if (offset > 25)   rating = "GOOD";        // early but ok
-    else if (offset > 8)    rating = "PERFECT";     // sweet spot
-    else if (offset > -3)   rating = "GOOD";        // right on player
-    else if (offset > -16)  rating = "INJURY";      // ball lands on head
-    else                    rating = "MISS";        // way too late
+    if (spatialErr <= spatialPerfect && Math.abs(timingErr) <= timingPerfect) {
+      rating = "PERFECT";
+    } else if (spatialErr <= spatialGood && Math.abs(timingErr) <= timingGood) {
+      rating = "GOOD";
+    } else if (timingErr > timingGood && spatialErr <= spatialGood) {
+      rating = "INJURY";
+    } else {
+      rating = "MISS";
+    }
 
     r.thrown = true;
     const mult = { PERFECT: 2.5, GOOD: 1.0, MISS: 0.1, INJURY: 0 }[rating];
@@ -126,35 +192,32 @@ const BBGame = {
     this.s.ratings[rating.toLowerCase()] += 1;
     this.s.lastRating = rating;
     this.s.lastEarned = earned;
-    this.s.ratingShownUntil = performance.now() + 1100;
+    this.s.ratingShownUntil = now + 1100;
+    this.s.shotDeadlineAt = null;
 
-    // Schedule the actual outcome at ball-landing
     const cs = this.s.coachScale;
     this.s.throws.push({
       sx: this.s.coachX + 24 * cs,
       sy: this.s.coachY - 110 * cs,
-      tx: this.s.catchX,
-      ty: this.s.coachY - 110,
+      tx: targetX,
+      ty: targetY,
       progress: 0,
-      duration: flightFrames * 16,
+      duration: flightMs,
       rating,
       runner: r,
     });
 
-    if (rating === "PERFECT") this._spawnSparkles(this.s.catchX, this.s.coachY - 90);
+    if (rating === "PERFECT") this._spawnSparkles(targetX, targetY);
   },
 
   _resolveRunnerOutcome(rating, runner) {
-    // Called when the ball arc completes
     if (rating === "PERFECT" || rating === "GOOD") {
       runner.animState = "caught";
     } else if (rating === "INJURY") {
       runner.animState = "injured";
-      // Spawn dazed stars
       for (let i = 0; i < 4; i++) runner.stars.push(Math.random() * Math.PI * 2);
     } else {
-      // MISS — runner keeps running past
-      runner.animState = "running";
+      runner.animState = "missed";
     }
     runner.stateTime = 0;
   },
@@ -171,73 +234,84 @@ const BBGame = {
     }
   },
 
+  _endTurn(ts) {
+    this.s.ballsResolved += 1;
+    this.s.currentRunner = null;
+    this.s.activeSpotIdx = -1;
+    this.s.shotDeadlineAt = null;
+    this.s.nextRunnerAt = ts + 350;
+  },
+
   _loop(ts) {
     const dt = ts - this._lastT;
     this._lastT = ts;
 
-    // Active runner movement & state transitions
     const r = this.s.currentRunner;
     if (r) {
       r.legPhase += dt / 80;
       r.stateTime += dt;
       if (r.animState === "running") {
-        r.x -= this.s.runnerVelocity * (dt / 16);
-        if (r.x < -60) {
+        const stepDist = (r.speed * dt) / 1000;
+        r.x += r.dirX * stepDist;
+        r.y += r.dirY * stepDist;
+        if (r.x < -60 || r.x > this.canvas.width + 60 ||
+            r.y < -60 || r.y > this.canvas.height + 60) {
           if (!r.thrown) {
-            // Player exited and user never threw — count as MISS
             this.s.ratings.miss += 1;
             this.s.lastRating = "MISS";
             this.s.lastEarned = 0;
             this.s.ratingShownUntil = ts + 800;
           }
-          this.s.ballsResolved += 1;
-          this.s.currentRunner = null;
-          this.s.nextRunnerAt = ts + 350;
+          this._endTurn(ts);
         }
-      } else if (r.animState === "caught") {
-        // Player keeps running with ball
-        r.x -= this.s.runnerVelocity * (dt / 16);
-        if (r.x < -60) {
-          this.s.ballsResolved += 1;
-          this.s.currentRunner = null;
-          this.s.nextRunnerAt = ts + 350;
+      } else if (r.animState === "caught" || r.animState === "missed") {
+        const stepDist = (r.speed * dt) / 1000;
+        r.x += r.dirX * stepDist;
+        r.y += r.dirY * stepDist;
+        if (r.stateTime > 900 ||
+            r.x < -60 || r.x > this.canvas.width + 60 ||
+            r.y < -60 || r.y > this.canvas.height + 60) {
+          this._endTurn(ts);
         }
       } else if (r.animState === "injured") {
-        if (r.stateTime > 1700) {
-          this.s.ballsResolved += 1;
-          this.s.currentRunner = null;
-          this.s.nextRunnerAt = ts + 350;
-        }
+        if (r.stateTime > 1700) this._endTurn(ts);
       }
     }
 
-    // Spawn next runner
+    // Shot-clock auto-miss
+    if (this.s.shotDeadlineAt !== null && r && !r.thrown && ts > this.s.shotDeadlineAt) {
+      r.thrown = true;
+      this.s.ratings.miss += 1;
+      this.s.lastRating = "MISS";
+      this.s.lastEarned = 0;
+      this.s.ratingShownUntil = ts + 800;
+      this.s.shotDeadlineAt = null;
+      r.animState = "missed";
+      r.stateTime = 0;
+    }
+
     if (!this.s.currentRunner && this.s.nextRunnerAt !== null && ts >= this.s.nextRunnerAt) {
       this.s.nextRunnerAt = null;
       this.spawnNextRunner();
     }
 
-    // Throws
     for (const t of this.s.throws) {
       const before = t.progress;
       t.progress = Math.min(1, t.progress + dt / t.duration);
       if (before < 1 && t.progress >= 1) {
-        // Ball just landed — resolve outcome
         this._resolveRunnerOutcome(t.rating, t.runner);
       }
     }
     this.s.throws = this.s.throws.filter((t) => t.progress < 1);
 
-    // Sparkles
-    for (const s of this.s.sparkles) {
-      s.x += s.vx;
-      s.y += s.vy;
-      s.vy += 0.18;
-      s.life -= dt / 700;
+    for (const sp of this.s.sparkles) {
+      sp.x += sp.vx;
+      sp.y += sp.vy;
+      sp.vy += 0.18;
+      sp.life -= dt / 700;
     }
-    this.s.sparkles = this.s.sparkles.filter((s) => s.life > 0);
+    this.s.sparkles = this.s.sparkles.filter((sp) => sp.life > 0);
 
-    // End condition
     if (!this.s.ended &&
         this.s.ballsResolved >= this.s.ballsTotal &&
         this.s.throws.length === 0 &&
@@ -264,38 +338,41 @@ const BBGame = {
   draw(ts) {
     const ctx = this.ctx;
     const W = this.canvas.width;
-    const H = this.canvas.height;
 
     Customize.drawBackground(ctx);
 
-    // Catch-zone marker on the ground (ball-landing X)
-    const groundY = H - 30;
-    ctx.fillStyle = "rgba(252, 196, 25, 0.45)";
-    ctx.fillRect(this.s.catchX - 22, groundY, 44, 16);
-    ctx.strokeStyle = "rgba(252, 196, 25, 0.9)";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(this.s.catchX - 22, groundY, 44, 16);
-    ctx.fillStyle = "#3d2914";
-    ctx.font = "bold 11px Lilita One, sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText("CATCH", this.s.catchX, groundY + 12);
-    ctx.textAlign = "start";
-
-    // Throw-timing marker (where player should be at moment of throw)
-    const idealThrowX = this.s.catchX + 15 + this.s.runnerVelocity * this.s.ballFlightFrames;
-    const blink = Math.abs(Math.sin(ts / 320));
-    const inZone = this.s.currentRunner &&
-                   this.s.currentRunner.animState === "running" &&
-                   !this.s.currentRunner.thrown &&
-                   Math.abs(this.s.currentRunner.x - idealThrowX) < 30;
-    ctx.fillStyle = `rgba(94, 196, 132, ${0.18 + blink * 0.35})`;
-    ctx.fillRect(idealThrowX - 30, groundY - 3, 60, 8);
-    if (inZone) {
-      ctx.fillStyle = "rgba(47, 158, 68, 0.85)";
-      ctx.font = "bold 18px Lilita One, sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillText("THROW NOW!", idealThrowX, groundY - 14);
-      ctx.textAlign = "start";
+    // Court spots — faint white rings, active one is bright pulsing green
+    for (let i = 0; i < this.s.spots.length; i++) {
+      const sp = this.s.spots[i];
+      const isActive = i === this.s.activeSpotIdx;
+      if (isActive) {
+        const blink = Math.abs(Math.sin(ts / 280));
+        const a = 0.55 + blink * 0.4;
+        ctx.save();
+        ctx.shadowColor = "rgba(60, 235, 110, 1)";
+        ctx.shadowBlur = 26;
+        ctx.beginPath();
+        ctx.arc(sp.x, sp.y, 30, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(60, 235, 110, ${a})`;
+        ctx.fill();
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = "rgba(20, 130, 50, 1)";
+        ctx.stroke();
+        ctx.restore();
+        // bright inner dot
+        ctx.beginPath();
+        ctx.arc(sp.x, sp.y, 7, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
+        ctx.fill();
+      } else {
+        ctx.beginPath();
+        ctx.arc(sp.x, sp.y, 20, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(255, 255, 255, 0.16)";
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.38)";
+        ctx.stroke();
+      }
     }
 
     // Coach + ball pile
@@ -303,10 +380,12 @@ const BBGame = {
       moving: false,
       scale: this.s.coachScale,
     });
-    Customize.drawBallPile(ctx, this.s.coachX - 50, this.s.coachY,
-      Math.max(0, this.s.ballsTotal - this.s.ballsResolved - (this.s.throws.length > 0 ? 1 : 0)));
+    Customize.drawBallPile(
+      ctx, this.s.coachX - 50, this.s.coachY,
+      Math.max(0, this.s.ballsTotal - this.s.ballsResolved - (this.s.throws.length > 0 ? 1 : 0))
+    );
 
-    // Active runner
+    // Cutter
     const eq = State.data.equipped;
     const jersey = Customize.jerseys[eq.jersey];
     const shoes = Customize.shoes[eq.shoes];
@@ -314,7 +393,6 @@ const BBGame = {
     if (r) {
       const rs = this.s.runnerScale;
       if (r.animState === "injured") {
-        // Player on the ground (rotated horizontal)
         ctx.save();
         ctx.translate(r.x, r.y - 50 * rs);
         ctx.rotate(-Math.PI / 2);
@@ -339,7 +417,23 @@ const BBGame = {
       }
     }
 
-    // Active throws
+    // Aim crosshair while a runner is live and undecided
+    if (r && !r.thrown) {
+      ctx.save();
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.7)";
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 5]);
+      ctx.beginPath();
+      ctx.arc(this.s.mouseX, this.s.mouseY, 18, 0, Math.PI * 2);
+      ctx.moveTo(this.s.mouseX - 26, this.s.mouseY);
+      ctx.lineTo(this.s.mouseX + 26, this.s.mouseY);
+      ctx.moveTo(this.s.mouseX, this.s.mouseY - 26);
+      ctx.lineTo(this.s.mouseX, this.s.mouseY + 26);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Ball arcs
     for (const t of this.s.throws) {
       const p = t.progress;
       const x = t.sx + (t.tx - t.sx) * p;
@@ -349,14 +443,27 @@ const BBGame = {
     }
 
     // Sparkles
-    for (const s of this.s.sparkles) {
-      ctx.globalAlpha = Math.max(0, s.life);
+    for (const sp of this.s.sparkles) {
+      ctx.globalAlpha = Math.max(0, sp.life);
       ctx.fillStyle = "#fcc419";
       ctx.beginPath();
-      ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+      ctx.arc(sp.x, sp.y, sp.size, 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.globalAlpha = 1;
+
+    // Shot clock bar
+    if (this.s.shotDeadlineAt && r && !r.thrown && this.s.shotDeadlineDuration > 0) {
+      const remaining = Math.max(0, this.s.shotDeadlineAt - ts);
+      const ratio = remaining / this.s.shotDeadlineDuration;
+      ctx.fillStyle = "rgba(0,0,0,0.5)";
+      ctx.fillRect(20, 20, 220, 22);
+      ctx.fillStyle = ratio > 0.5 ? "#69db7c" : ratio > 0.25 ? "#fcc419" : "#fa5252";
+      ctx.fillRect(22, 22, (220 - 4) * ratio, 18);
+      ctx.fillStyle = "#fff";
+      ctx.font = "bold 12px Lilita One, sans-serif";
+      ctx.fillText("SHOT CLOCK", 28, 36);
+    }
 
     // Rating popup
     if (this.s.lastRating && ts < this.s.ratingShownUntil) {
@@ -389,13 +496,22 @@ const BBGame = {
       ctx.globalAlpha = 1;
     }
 
-    // Throws-left readout (top right)
+    // Throws-left readout
     const left = this.s.ballsTotal - this.s.ballsResolved;
     ctx.fillStyle = "rgba(0,0,0,0.55)";
     ctx.fillRect(W - 170, 80, 150, 40);
     ctx.fillStyle = "#fff";
     ctx.font = "bold 18px Lilita One, sans-serif";
     ctx.fillText(`Throws left: ${left}`, W - 162, 105);
+
+    // Pace indicator (difficulty tier)
+    const d = this.difficulty();
+    const tier = d < 0.34 ? "Warm-up" : d < 0.67 ? "Drill" : "Crunch time";
+    ctx.fillStyle = "rgba(0,0,0,0.55)";
+    ctx.fillRect(W - 170, 130, 150, 30);
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 14px Lilita One, sans-serif";
+    ctx.fillText(`Pace: ${tier}`, W - 162, 150);
   },
 
   updateHUD() {
