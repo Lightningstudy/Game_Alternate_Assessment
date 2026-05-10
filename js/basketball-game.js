@@ -28,7 +28,7 @@ const BBGame = {
 
       coachScale: 1.5,
       runnerScale: 1.6,
-      ballFlightFrames: 28,
+      ballFlightFrames: 18,
 
       // Catch spots scattered around the court
       spots: [
@@ -117,7 +117,7 @@ const BBGame = {
     const spot = this.s.spots[idx];
 
     const d = this.difficulty();
-    const speed = 200 + d * 220;             // 200..420 px/s
+    const speed = 130 + d * 150;             // 130..280 px/s
     const startDist = 230 + Math.random() * 80;
     const angle = Math.random() * Math.PI * 2;
     let startX = spot.x + Math.cos(angle) * startDist;
