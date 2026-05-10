@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Coach Algebra · Slam-Dunk Math Drills</title>
+
+<!-- Game-style fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Lilita+One&family=Orbitron:wght@600;700;900&display=swap" rel="stylesheet" />
+
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="court-bg" aria-hidden="true"></div>
+<div id="app">
+
+  <!-- =================== MENU =================== -->
+  <section id="screen-menu" class="screen active">
+    <div class="title-card">
+      <div class="logo-line">
+        <span class="ball">🏀</span>
+        <h1>Coach Algebra</h1>
+      </div>
+      <p class="tagline">Run drills · Solve equations · Coach your team to the championship</p>
+
+      <canvas id="team-canvas" width="900" height="220"></canvas>
+
+      <div class="coin-strip">
+        <span class="coin-pill"><span id="menu-coins">0</span> 🪙</span>
+        <span class="hint">Pass a level with 80%+ to unlock the next one. Harder levels = more coins.</span>
+      </div>
+
+      <div class="level-buttons">
+        <button class="level-btn easy-btn" data-level="easy">
+          <span class="lvl-tag">LV 1</span>
+          <span class="lvl-name">Rookie</span>
+          <span class="lvl-sub">Slope · y-intercept · Reading graphs</span>
+          <span class="lvl-rate">10 pts / question · 5 🪙 per ball</span>
+          <span class="best" id="best-easy"></span>
+        </button>
+        <button class="level-btn medium-btn" data-level="medium">
+          <span class="lvl-tag">LV 2</span>
+          <span class="lvl-name">Starter</span>
+          <span class="lvl-sub">Solve · Plot points · Systems</span>
+          <span class="lvl-rate">25 pts / question · 12 🪙 per ball</span>
+          <span class="best" id="best-medium"></span>
+          <span class="lock" id="lock-medium">🔒 Pass Rookie ≥ 80%</span>
+        </button>
+        <button class="level-btn hard-btn" data-level="hard">
+          <span class="lvl-tag">LV 3</span>
+          <span class="lvl-name">All-Star</span>
+          <span class="lvl-sub">Equation from graph · Full systems</span>
+          <span class="lvl-rate">50 pts / question · 25 🪙 per ball</span>
+          <span class="best" id="best-hard"></span>
+          <span class="lock" id="lock-hard">🔒 Pass Starter ≥ 80%</span>
+        </button>
+      </div>
+
+      <div class="menu-actions">
+        <button id="open-store" class="big-btn">🛍 Locker Room</button>
+        <button id="reset-progress" class="link-btn">Reset progress</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- =================== MATH SESSION =================== -->
+  <section id="screen-math" class="screen">
+    <header class="hud">
+      <div class="hud-side hud-left">
+        <div class="hud-cell"><span class="lbl">Best</span><span id="hud-best">-</span></div>
+        <div class="hud-cell"><span class="lbl">Score</span><span id="hud-score">0/0</span></div>
+        <div class="hud-cell"><span class="lbl">Points</span><span id="hud-points">0</span></div>
+      </div>
+
+      <div class="scoreboard">
+        <div class="scoreboard-label">Q TIME</div>
+        <div class="scoreboard-time" id="hud-time">5:00</div>
+      </div>
+
+      <div class="hud-side hud-right">
+        <div class="hud-cell streak-cell" id="streak-cell"><span class="lbl">Streak</span><span class="streak-val"><span id="hud-streak">0</span><span class="fire" id="hud-fire"></span></span></div>
+        <div class="hud-cell"><span class="lbl">Balls</span><span id="hud-balls">0</span> 🏀</div>
+        <div class="hud-cell"><span class="lbl">Level</span><span id="hud-level">Rookie</span></div>
+      </div>
+
+      <button id="quit-math" class="quit-btn" title="End session early">End drill</button>
+    </header>
+
+    <div id="problem-area"></div>
+    <div id="feedback" class="feedback hidden"></div>
+    <div id="confetti-layer" class="confetti-layer"></div>
+    <div id="pregame-countdown" class="pregame-countdown hidden"></div>
+  </section>
+
+  <!-- =================== BASKETBALL MINI-GAME =================== -->
+  <section id="screen-basketball" class="screen">
+    <header class="hud bb-hud">
+      <div class="hud-side hud-left">
+        <div class="hud-cell"><span class="lbl">Balls left</span><span id="bb-balls">0</span></div>
+        <div class="hud-cell"><span class="lbl">Coins</span><span id="bb-coins">0</span></div>
+      </div>
+      <div class="scoreboard small">
+        <div class="scoreboard-label">LAST</div>
+        <div class="scoreboard-time" id="bb-best">-</div>
+      </div>
+      <div class="hud-side hud-right">
+        <div class="hud-cell hud-help">
+          Press <kbd>Space</kbd> or click when the runner enters the throw zone. Too late = head shot 🤕
+        </div>
+      </div>
+    </header>
+    <div class="bb-wrap">
+      <canvas id="bb-canvas" width="900" height="500"></canvas>
+    </div>
+  </section>
+
+  <!-- =================== RESULTS =================== -->
+  <section id="screen-results" class="screen">
+    <div class="results-card">
+      <h2 id="results-title">Practice complete!</h2>
+      <div class="results-grid">
+        <div class="stat"><span class="lbl">Accuracy</span><span class="val" id="r-accuracy">0%</span></div>
+        <div class="stat"><span class="lbl">Correct</span><span class="val" id="r-correct">0/0</span></div>
+        <div class="stat"><span class="lbl">Best streak</span><span class="val" id="r-streak">0</span></div>
+        <div class="stat"><span class="lbl">Math points</span><span class="val" id="r-points">0</span></div>
+        <div class="stat"><span class="lbl">Balls thrown</span><span class="val"><span id="r-balls">0</span> 🏀</span></div>
+        <div class="stat coins"><span class="lbl">Coins this run</span><span class="val"><span id="r-coins">0</span> 🪙</span></div>
+        <div class="stat"><span class="lbl">Personal best</span><span class="val" id="r-pb">0%</span></div>
+      </div>
+      <div id="unlock-banner" class="unlock-banner hidden"></div>
+      <div class="results-actions">
+        <button id="play-again" class="big-btn">Run another drill</button>
+        <button id="goto-store" class="big-btn alt">Visit Locker Room</button>
+        <button id="back-menu" class="link-btn">Back to menu</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- =================== STORE =================== -->
+  <section id="screen-store" class="screen">
+    <header class="store-header">
+      <button id="store-back" class="link-btn">← Menu</button>
+      <h2>🛍 Locker Room</h2>
+      <div class="coin-pill"><span id="store-coins">0</span> 🪙</div>
+    </header>
+    <div class="store-body">
+      <aside class="store-cats">
+        <button data-cat="jersey" class="cat-btn active">Jerseys</button>
+        <button data-cat="shoes" class="cat-btn">Shoes</button>
+        <button data-cat="court" class="cat-btn">Court</button>
+        <button data-cat="mascot" class="cat-btn">Mascot</button>
+      </aside>
+      <div class="store-main">
+        <div class="preview-wrap">
+          <h3>Preview</h3>
+          <canvas id="preview-canvas" width="600" height="600"></canvas>
+        </div>
+        <div class="item-grid" id="item-grid"></div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script src="js/state.js"></script>
+<script src="js/customize.js"></script>
+<script src="js/graph.js"></script>
+<script src="js/problems.js"></script>
+<script src="js/math-game.js"></script>
+<script src="js/basketball-game.js"></script>
+<script src="js/store.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
