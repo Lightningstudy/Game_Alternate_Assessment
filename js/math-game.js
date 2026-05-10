@@ -13,7 +13,7 @@ const MathGame = {
       bestStreak: 0,
       balls: 0,
       points: 0,
-      timeLeft: 5 * 60,
+      timeLeft: 2 * 60,
       currentProblem: null,
       onDone,
       pendingAdvance: null,
