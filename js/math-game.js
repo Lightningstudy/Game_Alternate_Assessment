@@ -99,10 +99,23 @@ const MathGame = {
       return;
     }
     // Update feedback countdown if active
-    if (this.state.feedbackEndsAt && now < this.state.feedbackEndsAt) {
-      const remaining = Math.ceil((this.state.feedbackEndsAt - now) / 1000);
-      const cdEl = document.getElementById("fb-countdown");
-      if (cdEl) cdEl.textContent = remaining;
+    if (this.state.feedbackEndsAt) {
+      if (now < this.state.feedbackEndsAt) {
+        const remaining = Math.ceil((this.state.feedbackEndsAt - now) / 1000);
+        const cdEl = document.getElementById("fb-countdown");
+        if (cdEl) cdEl.textContent = remaining;
+      } else if (!document.getElementById("fb-next")) {
+        const cdEl = document.getElementById("fb-countdown");
+        if (cdEl) {
+          const btn = document.createElement("button");
+          btn.id = "fb-next";
+          btn.className = "fb-next-btn";
+          btn.textContent = "Next problem →";
+          btn.addEventListener("click", () => this.nextProblem());
+          cdEl.replaceWith(btn);
+          btn.focus();
+        }
+      }
     }
     this.updateHUD();
   },
@@ -354,7 +367,6 @@ const MathGame = {
       this.state.streak = 0;
       this.showFeedback(false, p, given);
       this.state.feedbackEndsAt = Date.now() + 5000;
-      this.state.pendingAdvance = setTimeout(() => this.nextProblem(), 5000);
     }
     this.updateHUD();
   },

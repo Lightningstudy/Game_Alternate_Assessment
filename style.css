@@ -599,6 +599,30 @@ kbd {
   letter-spacing: 1px;
   text-shadow: 0 2px 6px rgba(201, 42, 42, 0.25);
 }
+.fb-next-btn {
+  display: block;
+  margin: 14px auto 4px;
+  padding: 12px 28px;
+  font-family: var(--font-display);
+  font-size: 20px;
+  letter-spacing: 0.6px;
+  color: #fff;
+  background: linear-gradient(180deg, #e8773a 0%, #c95a1f 100%);
+  border: 2px solid #8a3d10;
+  border-radius: 12px;
+  cursor: pointer;
+  box-shadow: 0 4px 0 #8a3d10, 0 6px 14px rgba(0,0,0,0.18);
+  transition: transform 0.06s ease, box-shadow 0.06s ease;
+}
+.fb-next-btn:hover { filter: brightness(1.05); }
+.fb-next-btn:active {
+  transform: translateY(2px);
+  box-shadow: 0 2px 0 #8a3d10, 0 3px 8px rgba(0,0,0,0.18);
+}
+.fb-next-btn:focus-visible {
+  outline: 3px solid #ffd35e;
+  outline-offset: 2px;
+}
 
 /* Confetti layer */
 .confetti-layer {
